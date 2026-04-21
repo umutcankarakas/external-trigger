@@ -4,6 +4,17 @@ from typing import Any, Dict, List, Optional
 
 
 @dataclass
+class BatchComplete:
+    """Sentinel published by the Fetcher after every polling cycle.
+    Flows through the pipeline so each service knows the batch is done:
+      Fetcher → raw_events → Normalizer → normalized_events
+             → Dedup (flush) → dedupped_events → TrustScore (skip)
+    """
+    batch_id: str                  # UTC ISO timestamp of the polling cycle
+    type: str = "batch_complete"   # discriminator used by bus._from_bytes
+
+
+@dataclass
 class RawEvent:
     source_id: str
     raw_data: Dict[str, Any]
@@ -12,10 +23,9 @@ class RawEvent:
 
 @dataclass
 class NormalizedEvent:
-    event_id: str
     name: str
     date: datetime
-    location: str      # "City, Country"
+    location: str           # "City, Country"
     venue: str
     category: List[str]
     tags: List[str]
@@ -24,9 +34,8 @@ class NormalizedEvent:
     price_min: Optional[float]
     price_max: Optional[float]
     currency: str
-    raw_data: Dict[str, Any]
-    fetched_at: datetime
-    normalized_at: datetime = field(default_factory=datetime.utcnow)
+    lat: Optional[float]
+    lng: Optional[float]
 
 
 @dataclass
@@ -38,13 +47,14 @@ class DeduppedEvent:
     venue: str
     category: List[str]
     tags: List[str]
-    sources: List[str]   # all source_ids that reported this event
+    sources: List[str]
     price_min: Optional[float]
     price_max: Optional[float]
     currency: str
     url: str
-    first_seen: datetime
-    seen_count: int = 1  # total ingestion count across all sources and refreshes
+    lat: Optional[float]
+    lng: Optional[float]
+    seen_count: int = 1
     last_updated: datetime = field(default_factory=datetime.utcnow)
 
 
@@ -62,21 +72,12 @@ class TrustedEvent:
     price_max: Optional[float]
     currency: str
     url: str
+    lat: Optional[float]
+    lng: Optional[float]
     trust_score: float
     source_count: int
-    seen_count: int      # total ingestion count, passed through from dedup
-    has_trusted_source: bool  # true if any source has weight >= TRUSTED_SOURCE_THRESHOLD
-    first_seen: datetime
-    scored_at: datetime = field(default_factory=datetime.utcnow)
-
-
-@dataclass
-class Notification:
-    user_id: str
-    event_key: str
-    event_name: str
-    event_date: str
-    event_location: str
-    relevance_score: float
-    reasoning: str
-    notified_at: datetime = field(default_factory=datetime.utcnow)
+    seen_count: int
+    has_trusted_source: bool
+    # Updated every time the score is (re)calculated. Trust score compares this
+    # against DeduppedEvent.last_updated to decide whether recalculation is needed.
+    last_calculated_at: datetime = field(default_factory=datetime.utcnow)

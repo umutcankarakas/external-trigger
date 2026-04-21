@@ -1,62 +1,28 @@
 [
   {
-    "source_id": "mock_concerts",
-    "endpoint": "mock://concerts",
-    "search_query": {},
-    "fetch_frequency": 30,
-    "last_fetched_at": null,
-    "is_active": true,
-    "auth_ref": null,
-    "category": ["concert", "music"],
-    "source_weight": 0.75,
-    "source_type": "mock"
-  },
-  {
-    "source_id": "mock_sports",
-    "endpoint": "mock://sports",
-    "search_query": {},
-    "fetch_frequency": 30,
-    "last_fetched_at": null,
-    "is_active": true,
-    "auth_ref": null,
-    "category": ["sports"],
-    "source_weight": 0.75,
-    "source_type": "mock"
-  },
-  {
-    "source_id": "mock_cultural",
-    "endpoint": "mock://cultural",
-    "search_query": {},
-    "fetch_frequency": 30,
-    "last_fetched_at": null,
-    "is_active": true,
-    "auth_ref": null,
-    "category": ["culture", "art", "theater"],
-    "source_weight": 0.70,
-    "source_type": "mock"
-  },
-  {
     "source_id": "ticketmaster",
     "endpoint": "https://app.ticketmaster.com/discovery/v2/events.json",
     "search_query": {"classificationName": "music", "size": 20, "countryCode": "TR"},
-    "fetch_frequency": 300,
+    "fetch_frequency": 60,
     "last_fetched_at": null,
     "is_active": true,
     "auth_ref": "ticketmaster_api_key",
+    "auth_type": "query_param",
     "category": ["event", "concert", "music"],
     "source_weight": 0.90,
     "source_type": "ticketmaster"
   },
   {
-    "source_id": "predictiq",
-    "endpoint": "https://api.predicthq.com/v1/events/",
-    "search_query": {"country": "TR", "limit": 20},
-    "fetch_frequency": 300,
+    "source_id": "mock",
+    "endpoint": "file://config/mock_events.json",
+    "search_query": {},
+    "fetch_frequency": 60,
     "last_fetched_at": null,
-    "is_active": false,
-    "auth_ref": "predictiq_api_key",
-    "category": ["event"],
-    "source_weight": 0.85,
-    "source_type": "predictiq"
+    "is_active": true,
+    "auth_ref": null,
+    "auth_type": "query_param",
+    "category": ["event", "concert", "music"],
+    "source_weight": 0.60,
+    "source_type": "mock"
   }
 ]

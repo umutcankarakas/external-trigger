@@ -17,7 +17,7 @@ class ExpirationService:
         self.check_interval = check_interval
 
     async def start(self) -> None:
-        logger.info(f"[EXPIRATION] Started — checking every {self.check_interval}s")
+        logger.info(f"[EXPIRATION] Started - checking every {self.check_interval}s")
         while True:
             await asyncio.sleep(self.check_interval)
             self._expire()

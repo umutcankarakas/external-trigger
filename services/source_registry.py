@@ -15,6 +15,7 @@ class Source:
     category: List[str]
     source_weight: float
     source_type: str
+    auth_type: str = "query_param"  # "query_param" | "bearer"
 
 
 class SourceRegistry:

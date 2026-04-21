@@ -30,3 +30,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Runtime state — regenerated on every run
+config/seen_ids.json

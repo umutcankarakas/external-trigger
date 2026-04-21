@@ -1,0 +1,67 @@
+[
+  {
+    "id": "mock-001",
+    "title": "Fazıl Say - Çılgın Nar Ağacı",
+    "start_date": "2026-05-13T20:00:00",
+    "city": "İzmir",
+    "country": "Turkey",
+    "venue": "Ahmed Adnan Saygun Center",
+    "category": "Music",
+    "subcategory": "Classical",
+    "tags": ["classical", "piano", "fazil-say"],
+    "url": "https://mock.example.com/event/001",
+    "price": {"min": 250.0, "max": 750.0, "currency": "TRY"}
+  },
+  {
+    "id": "mock-002",
+    "title": "Fazıl Say",
+    "start_date": "2026-06-19T21:00:00",
+    "city": "Antalya",
+    "country": "Turkey",
+    "venue": "Akra Antalya",
+    "category": "Music",
+    "subcategory": "Classical",
+    "tags": ["classical", "piano", "concert"],
+    "url": "https://mock.example.com/event/002",
+    "price": {"min": 300.0, "max": 900.0, "currency": "TRY"}
+  },
+  {
+    "id": "mock-003",
+    "title": "Fazıl Say ile Ferit Odman",
+    "start_date": "2026-05-12T20:30:00",
+    "city": "Muğla",
+    "country": "Turkey",
+    "venue": "Marmaris Amfi Tiyatro",
+    "category": "Music",
+    "subcategory": "Jazz",
+    "tags": ["jazz", "piano", "concert"],
+    "url": "https://mock.example.com/event/003",
+    "price": {"min": 150.0, "max": 400.0, "currency": "TRY"}
+  },
+  {
+    "id": "mock-004",
+    "title": "Burhan Öçal & Istanbul Oriental Ensemble",
+    "start_date": "2026-07-10T21:00:00",
+    "city": "İstanbul",
+    "country": "Turkey",
+    "venue": "Zorlu PSM",
+    "category": "Music",
+    "subcategory": "World Music",
+    "tags": ["world-music", "percussion", "oriental"],
+    "url": "https://mock.example.com/event/004",
+    "price": {"min": 200.0, "max": 600.0, "currency": "TRY"}
+  },
+  {
+    "id": "mock-005",
+    "title": "Gaye Su Akyol",
+    "start_date": "2026-06-05T20:00:00",
+    "city": "Ankara",
+    "country": "Turkey",
+    "venue": "Congresium Ankara",
+    "category": "Music",
+    "subcategory": "Alternative",
+    "tags": ["alternative", "psychedelic", "turkish-rock"],
+    "url": "https://mock.example.com/event/005",
+    "price": {"min": 180.0, "max": 450.0, "currency": "TRY"}
+  }
+]

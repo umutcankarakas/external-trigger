@@ -1,249 +1,140 @@
 """
 Fetcher: reads active sources from the Source Registry, fetches each one
 asynchronously on its configured schedule, and publishes RawEvents to the
-raw_events topic. Mock sources (endpoint starts with mock://) are handled
-by in-process generators; real HTTP sources use aiohttp.
+raw_events topic.
 
-Retry strategy: exponential backoff — 2 s → 4 s → 8 s (max 3 attempts).
+After every polling cycle (all sources attempted), a BatchComplete sentinel is
+published so downstream services know the batch is finished and can flush.
+
+Retry strategy: exponential backoff - 2 s -> 4 s -> 8 s (max 3 attempts).
+Auth types: "query_param" (e.g. Ticketmaster) or "bearer" (e.g. Eventbrite).
+
+Dedup: each source maintains a set of seen event IDs. Duplicates within the
+same batch and across repeated fetches are dropped before reaching Kafka.
 """
 import asyncio
+import json
 import logging
+import os
 from datetime import datetime, timedelta
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 import aiohttp
 
 from core.bus import MessageBus
-from core.models import RawEvent
+from core.models import BatchComplete, RawEvent
 from services.source_registry import Source, SourceRegistry
 from services.vault import Vault
 
 logger = logging.getLogger(__name__)
 
-
-# ---------------------------------------------------------------------------
-# Mock data generators
-# ---------------------------------------------------------------------------
-
-def _gen_concerts(_source: Source, _query: dict) -> List[Dict]:
-    base = datetime.utcnow()
-    return [
-        {
-            "id": "concert_001",
-            "title": "Jazz Night at Babylon",
-            "start_date": (base + timedelta(days=6)).strftime("%Y-%m-%dT21:00:00"),
-            "city": "Istanbul", "country": "Turkey",
-            "venue": "Babylon",
-            "category": "concert", "subcategory": "jazz",
-            "tags": ["jazz", "live music", "nightlife", "entertainment"],
-            "price": {"min": 150, "max": 300, "currency": "TRY"},
-            "url": "https://biletix.com/event/concert_001",
-        },
-        {
-            "id": "concert_002",
-            "title": "Indie Rock Istanbul Festival",
-            "start_date": (base + timedelta(days=11)).strftime("%Y-%m-%dT18:00:00"),
-            "city": "Istanbul", "country": "Turkey",
-            "venue": "KüçükÇiftlik Park",
-            "category": "concert", "subcategory": "indie rock",
-            "tags": ["indie", "rock", "festival", "live music", "outdoor"],
-            "price": {"min": 500, "max": 800, "currency": "TRY"},
-            "url": "https://biletix.com/event/concert_002",
-        },
-        {
-            "id": "concert_003",
-            "title": "Coldplay World Tour – Istanbul",
-            "start_date": (base + timedelta(days=31)).strftime("%Y-%m-%dT20:00:00"),
-            "city": "Istanbul", "country": "Turkey",
-            "venue": "Atatürk Olympic Stadium",
-            "category": "concert", "subcategory": "pop rock",
-            "tags": ["pop", "rock", "stadium", "international", "live music"],
-            "price": {"min": 1500, "max": 5000, "currency": "TRY"},
-            "url": "https://biletix.com/event/concert_003",
-        },
-        {
-            "id": "concert_004",
-            "title": "Classical Symphony Night",
-            "start_date": (base + timedelta(days=17)).strftime("%Y-%m-%dT20:30:00"),
-            "city": "Istanbul", "country": "Turkey",
-            "venue": "Cemal Reşit Rey Concert Hall",
-            "category": "concert", "subcategory": "classical",
-            "tags": ["classical", "symphony", "orchestra", "culture"],
-            "price": {"min": 100, "max": 250, "currency": "TRY"},
-            "url": "https://biletix.com/event/concert_004",
-        },
-        {
-            "id": "concert_005",
-            "title": "Electronic Music Night – Ankara",
-            "start_date": (base + timedelta(days=14)).strftime("%Y-%m-%dT23:00:00"),
-            "city": "Ankara", "country": "Turkey",
-            "venue": "Congresium",
-            "category": "concert", "subcategory": "electronic",
-            "tags": ["electronic", "dj", "dance", "nightlife"],
-            "price": {"min": 200, "max": 400, "currency": "TRY"},
-            "url": "https://biletix.com/event/concert_005",
-        },
-    ]
+_SEEN_IDS_PATH = "config/seen_ids.json"
+# IDs older than this are dropped — Ticketmaster only surfaces upcoming events
+# so anything beyond this window will never reappear in the API.
+_SEEN_IDS_TTL_DAYS = 60
 
 
-def _gen_sports(_source: Source, _query: dict) -> List[Dict]:
-    base = datetime.utcnow()
-    return [
-        {
-            "id": "sports_001",
-            "title": "Galatasaray vs Fenerbahçe – Süper Lig Derby",
-            "start_date": (base + timedelta(days=5)).strftime("%Y-%m-%dT19:00:00"),
-            "city": "Istanbul", "country": "Turkey",
-            "venue": "RAMS Park",
-            "category": "sports", "subcategory": "football",
-            "tags": ["football", "derby", "süper lig", "live sports"],
-            "price": {"min": 300, "max": 2000, "currency": "TRY"},
-            "url": "https://biletmaster.com/event/sports_001",
-        },
-        {
-            "id": "sports_002",
-            "title": "EuroLeague – Anadolu Efes vs Real Madrid",
-            "start_date": (base + timedelta(days=3)).strftime("%Y-%m-%dT20:00:00"),
-            "city": "Istanbul", "country": "Turkey",
-            "venue": "Sinan Erdem Arena",
-            "category": "sports", "subcategory": "basketball",
-            "tags": ["basketball", "euroleague", "live sports"],
-            "price": {"min": 200, "max": 800, "currency": "TRY"},
-            "url": "https://biletmaster.com/event/sports_002",
-        },
-        {
-            "id": "sports_003",
-            "title": "Champions League Final",
-            "start_date": (base + timedelta(days=44)).strftime("%Y-%m-%dT21:00:00"),
-            "city": "London", "country": "UK",
-            "venue": "Wembley Stadium",
-            "category": "sports", "subcategory": "football",
-            "tags": ["football", "champions league", "final", "international"],
-            "price": {"min": 200, "max": 2000, "currency": "EUR"},
-            "url": "https://uefa.com/event/sports_003",
-        },
-        {
-            "id": "sports_004",
-            "title": "Istanbul Marathon 2026",
-            "start_date": (base + timedelta(days=21)).strftime("%Y-%m-%dT08:00:00"),
-            "city": "Istanbul", "country": "Turkey",
-            "venue": "Bosphorus Bridge",
-            "category": "sports", "subcategory": "running",
-            "tags": ["marathon", "running", "outdoor", "fitness"],
-            "price": {"min": 100, "max": 200, "currency": "TRY"},
-            "url": "https://istanbulmarathon.com/event/sports_004",
-        },
-    ]
+def _load_seen_ids() -> tuple:
+    """Load persisted seen-ID sets, pruning entries older than the TTL window.
+    Returns (seen_ids, seen_ts) so both structures stay in sync."""
+    if not os.path.exists(_SEEN_IDS_PATH):
+        return {}, {}
+    cutoff = (datetime.utcnow() - timedelta(days=_SEEN_IDS_TTL_DAYS)).isoformat()
+    with open(_SEEN_IDS_PATH) as f:
+        data = json.load(f)  # {source_id: {event_id: first_seen_iso}}
+    seen_ids: Dict[str, Set[str]] = {}
+    seen_ts: Dict[str, Dict[str, str]] = {}
+    for source_id, entries in data.items():
+        valid = {eid: ts for eid, ts in entries.items() if ts >= cutoff}
+        seen_ids[source_id] = set(valid.keys())
+        seen_ts[source_id] = valid  # preserve timestamps for next save
+    return seen_ids, seen_ts
 
 
-def _gen_cultural(_source: Source, _query: dict) -> List[Dict]:
-    base = datetime.utcnow()
-    return [
-        {
-            "id": "cultural_001",
-            "title": "Modern Art Exhibition – Istanbul Modern",
-            "start_date": (base + timedelta(days=4)).strftime("%Y-%m-%dT10:00:00"),
-            "city": "Istanbul", "country": "Turkey",
-            "venue": "Istanbul Modern",
-            "category": "culture", "subcategory": "art exhibition",
-            "tags": ["art", "modern art", "exhibition", "culture", "gallery"],
-            "price": {"min": 80, "max": 80, "currency": "TRY"},
-            "url": "https://istanbulmodern.org/event/cultural_001",
-        },
-        {
-            "id": "cultural_002",
-            "title": "Hamlet – Zorlu PSM Theater",
-            "start_date": (base + timedelta(days=7)).strftime("%Y-%m-%dT20:00:00"),
-            "city": "Istanbul", "country": "Turkey",
-            "venue": "Zorlu PSM",
-            "category": "culture", "subcategory": "theater",
-            "tags": ["theater", "drama", "shakespeare", "culture", "arts"],
-            "price": {"min": 200, "max": 600, "currency": "TRY"},
-            "url": "https://zorlupsm.com/event/cultural_002",
-        },
-        {
-            "id": "cultural_003",
-            "title": "Istanbul Food & Taste Festival",
-            "start_date": (base + timedelta(days=12)).strftime("%Y-%m-%dT12:00:00"),
-            "city": "Istanbul", "country": "Turkey",
-            "venue": "Harbiye Open Air Theater",
-            "category": "culture", "subcategory": "food",
-            "tags": ["food", "dining", "festival", "gastronomy", "outdoor"],
-            "price": {"min": 50, "max": 200, "currency": "TRY"},
-            "url": "https://foodfest.istanbul/event/cultural_003",
-        },
-        {
-            "id": "cultural_004",
-            "title": "TEDxIstanbul 2026",
-            "start_date": (base + timedelta(days=19)).strftime("%Y-%m-%dT09:00:00"),
-            "city": "Istanbul", "country": "Turkey",
-            "venue": "Sabancı Center",
-            "category": "culture", "subcategory": "conference",
-            "tags": ["ted", "ideas", "technology", "culture", "conference", "innovation"],
-            "price": {"min": 500, "max": 500, "currency": "TRY"},
-            "url": "https://tedxistanbul.com/event/cultural_004",
-        },
-        {
-            "id": "cultural_005",
-            "title": "Photography Exhibition – Faces of Anatolia",
-            "start_date": (base + timedelta(days=5)).strftime("%Y-%m-%dT10:00:00"),
-            "city": "Ankara", "country": "Turkey",
-            "venue": "CerModern",
-            "category": "culture", "subcategory": "photography",
-            "tags": ["photography", "exhibition", "art", "culture", "gallery"],
-            "price": {"min": 30, "max": 30, "currency": "TRY"},
-            "url": "https://cermodern.org/event/cultural_005",
-        },
-    ]
+def _save_seen_ids(seen_ts: Dict[str, Dict[str, str]]) -> None:
+    with open(_SEEN_IDS_PATH, "w") as f:
+        json.dump(seen_ts, f)
 
 
-MOCK_HANDLERS: Dict[str, Callable] = {
-    "mock_concerts": _gen_concerts,
-    "mock_sports": _gen_sports,
-    "mock_cultural": _gen_cultural,
-}
+def _event_id(event: Dict[str, Any]) -> Optional[str]:
+    raw_id = event.get("id")
+    return str(raw_id) if raw_id is not None else None
 
-
-# ---------------------------------------------------------------------------
-# Fetcher service
-# ---------------------------------------------------------------------------
 
 class Fetcher:
-    RETRY_DELAYS = [2, 4, 8]
+    RETRY_DELAYS = [2, 4, 8]  # seconds between attempts (exponential backoff)
 
     def __init__(self, registry: SourceRegistry, vault: Vault, bus: MessageBus):
         self.registry = registry
         self.vault = vault
         self.bus = bus
         self._last_fetched: Dict[str, datetime] = {}
+        # Persisted across restarts so the same event is never published twice.
+        # _seen_ids: fast lookup set; _seen_ts: {event_id: first_seen_iso} for TTL pruning.
+        # Both are loaded together so timestamps are never lost on save.
+        self._seen_ids, self._seen_ts = _load_seen_ids()
 
     async def start(self) -> None:
-        logger.info("[FETCHER] Started — polling every 5 s")
+        sources = self.registry.get_active_sources()
+        summary = ", ".join(
+            f"{s.source_id} every {s.fetch_frequency // 60} min" for s in sources
+        )
+        logger.info(f"[FETCHER] Started  ({summary})")
         while True:
-            sources = self.registry.get_active_sources()
-            await asyncio.gather(*[self._maybe_fetch(s) for s in sources])
+            # Fetch all sources concurrently; each returns the number of new events published
+            counts = await asyncio.gather(*[self._maybe_fetch(s) for s in sources])
+            # Only send BatchComplete when at least one source had new events.
+            # An empty cycle (all sources skipped or all duplicates) produces no Kafka traffic.
+            if any(counts):
+                batch_id = datetime.utcnow().isoformat()
+                await self.bus.publish("raw_events", BatchComplete(batch_id=batch_id))
             await asyncio.sleep(5)
 
-    async def _maybe_fetch(self, source: Source) -> None:
+    async def _maybe_fetch(self, source: Source) -> int:
+        """Returns the number of new events published, or 0 if the source was not due."""
         last = self._last_fetched.get(source.source_id)
         if last and (datetime.utcnow() - last).total_seconds() < source.fetch_frequency:
-            return
-        await self._fetch_with_retry(source)
+            return 0
+        return await self._fetch_with_retry(source)
 
-    async def _fetch_with_retry(self, source: Source) -> None:
+    async def _fetch_with_retry(self, source: Source) -> int:
+        """Returns the number of new events published, or 0 on total failure."""
         for attempt, delay in enumerate(self.RETRY_DELAYS):
             try:
                 events = await self._fetch(source)
                 self._last_fetched[source.source_id] = datetime.utcnow()
+
+                seen = self._seen_ids.setdefault(source.source_id, set())
+                ts_map = self._seen_ts.setdefault(source.source_id, {})
+                now_iso = datetime.utcnow().isoformat()
+                new_events = []
                 for event in events:
+                    eid = _event_id(event)
+                    if eid is None or eid not in seen:
+                        if eid:
+                            seen.add(eid)
+                            ts_map[eid] = now_iso  # record when we first saw it
+                        new_events.append(event)
+
+                skipped = len(events) - len(new_events)
+                for event in new_events:
                     await self.bus.publish(
                         "raw_events",
                         RawEvent(source_id=source.source_id, raw_data=event),
                     )
-                logger.info(
-                    f"[FETCHER] {source.source_id}: fetched {len(events)} events"
-                )
-                return
+
+                _save_seen_ids(self._seen_ts)
+
+                if skipped:
+                    logger.info(
+                        f"[FETCHER] {source.source_id}: {len(new_events)} new, "
+                        f"{skipped} duplicates skipped"
+                    )
+                else:
+                    logger.info(
+                        f"[FETCHER] {source.source_id}: fetched {len(new_events)} events"
+                    )
+                return len(new_events)
             except Exception as exc:
                 if attempt < len(self.RETRY_DELAYS) - 1:
                     logger.warning(
@@ -253,37 +144,45 @@ class Fetcher:
                     await asyncio.sleep(delay)
                 else:
                     logger.error(
-                        f"[FETCHER] {source.source_id}: all retries exhausted — {exc}"
+                        f"[FETCHER] {source.source_id}: all retries exhausted - {exc}"
                     )
+        return 0
 
     async def _fetch(self, source: Source) -> List[Dict[str, Any]]:
-        if source.endpoint.startswith("mock://"):
-            handler = MOCK_HANDLERS.get(source.source_id)
-            if not handler:
-                raise ValueError(f"No mock handler registered for '{source.source_id}'")
-            return handler(source, source.search_query)
+        # File-based sources (used for mock/test data) — no HTTP needed
+        if source.endpoint.startswith("file://"):
+            path = source.endpoint[len("file://"):]
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)
 
-        api_key: Optional[str] = None
-        if source.auth_ref:
-            api_key = self.vault.get(source.auth_ref)
+        api_key: Optional[str] = self.vault.get(source.auth_ref) if source.auth_ref else None
 
         params = dict(source.search_query)
+        headers: Dict[str, str] = {}
+
         if api_key:
-            params["apikey"] = api_key
+            if source.auth_type == "bearer":
+                headers["Authorization"] = f"Bearer {api_key}"
+            else:
+                # query_param auth: key goes in the URL query string (e.g. Ticketmaster)
+                params["apikey"] = api_key
 
         async with aiohttp.ClientSession() as session:
             async with session.get(
                 source.endpoint,
                 params=params,
+                headers=headers,
                 timeout=aiohttp.ClientTimeout(total=30),
             ) as resp:
                 resp.raise_for_status()
                 data = await resp.json()
 
-        # Unwrap common API envelopes
+        # Each API wraps its event list differently; unwrap to a flat list
         if isinstance(data, dict):
-            if "_embedded" in data:          # Ticketmaster
+            if "_embedded" in data:   # Ticketmaster
                 return data["_embedded"].get("events", [])
-            if "results" in data:            # PredictHQ
+            if "events" in data:      # Eventbrite
+                return data["events"]
+            if "results" in data:     # PredictHQ
                 return data["results"]
         return data if isinstance(data, list) else []
