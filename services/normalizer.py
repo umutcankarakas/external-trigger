@@ -178,10 +178,12 @@ class Normalizer:
 
     def _normalize(self, raw: RawEvent) -> Optional[NormalizedEvent]:
         source_type = "mock"
+        source_weight = 0.5
         if self.registry:
             src = self.registry.get_source(raw.source_id)
             if src:
                 source_type = src.source_type
+                source_weight = src.source_weight
 
         fn = SOURCE_NORMALIZERS.get(source_type)
         if fn is None:
@@ -190,7 +192,11 @@ class Normalizer:
             )
             return None
         try:
-            return fn(raw)
+            event = fn(raw)
+            if event:
+                # Attach the source weight so DedupStore can apply merge priority
+                event.source_weight = source_weight
+            return event
         except Exception as exc:
             logger.warning(
                 f"[NORMALIZER] Failed for {raw.source_id}: {exc}"

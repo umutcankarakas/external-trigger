@@ -36,6 +36,9 @@ class NormalizedEvent:
     currency: str
     lat: Optional[float]
     lng: Optional[float]
+    # Weight of the source that produced this event (from SourceRegistry).
+    # Used by DedupStore to decide whose data to prefer when merging.
+    source_weight: float = 0.5
 
 
 @dataclass

@@ -24,6 +24,34 @@ from core.models import BatchComplete, DeduppedEvent, NormalizedEvent
 
 logger = logging.getLogger(__name__)
 
+# Sources at or above this weight are considered "trusted" for merge priority.
+# Matches the threshold used by TrustScoreService.
+_TRUSTED_WEIGHT = 0.85
+
+
+def _prefer(existing: str, incoming: str, trusted: bool) -> str:
+    """Pick the better string value when merging two sources.
+
+    Rules (in order):
+      1. Trusted source always wins if it has a non-empty value.
+      2. Fill in any empty existing value with whatever the new source has.
+      3. Otherwise keep what we already have.
+    """
+    if trusted and incoming:
+        return incoming
+    if not existing and incoming:
+        return incoming
+    return existing
+
+
+def _prefer_list(existing: list, incoming: list, trusted: bool) -> list:
+    """Same logic as _prefer but for list fields (category)."""
+    if trusted and incoming:
+        return incoming
+    if not existing and incoming:
+        return incoming
+    return existing
+
 
 # Explicit map for Turkish characters that don't decompose via NFKD
 _TR_MAP = str.maketrans({
@@ -69,28 +97,43 @@ class DedupStore:
 
         if existing:
             existing.seen_count += 1
+            trusted = event.source_weight >= _TRUSTED_WEIGHT
+
             if event.source_id not in existing.sources:
                 existing.sources.append(event.source_id)
-            # Keep the tightest price bounds seen across all sources
+
+            # Text fields: trusted source wins; otherwise fill in any empty value
+            existing.name     = _prefer(existing.name,     event.name,     trusted)
+            existing.url      = _prefer(existing.url,      event.url,      trusted)
+            existing.venue    = _prefer(existing.venue,    event.venue,    trusted)
+            existing.currency = _prefer(existing.currency, event.currency, trusted)
+            existing.category = _prefer_list(existing.category, event.category, trusted)
+
+            # Price: always keep the tightest bounds across all sources
             if event.price_min is not None:
                 existing.price_min = (
                     min(existing.price_min, event.price_min)
-                    if existing.price_min is not None
-                    else event.price_min
+                    if existing.price_min is not None else event.price_min
                 )
             if event.price_max is not None:
                 existing.price_max = (
                     max(existing.price_max, event.price_max)
-                    if existing.price_max is not None
-                    else event.price_max
+                    if existing.price_max is not None else event.price_max
                 )
-            # Union of tags so every source's classification contributes
-            existing.tags = list(set(existing.tags) | set(event.tags))
-            # Coordinates: keep the first non-null value; don't overwrite known data
-            if existing.lat is None and event.lat is not None:
+
+            # Tags: always union so every source's classification contributes
+            existing.tags = list(dict.fromkeys(existing.tags + event.tags))
+
+            # Coordinates: trusted source wins; otherwise fill in first non-null
+            if trusted and event.lat is not None:
                 existing.lat = event.lat
-            if existing.lng is None and event.lng is not None:
+            elif existing.lat is None and event.lat is not None:
+                existing.lat = event.lat
+            if trusted and event.lng is not None:
                 existing.lng = event.lng
+            elif existing.lng is None and event.lng is not None:
+                existing.lng = event.lng
+
             existing.last_updated = datetime.utcnow()
             return existing, False
 
@@ -115,6 +158,11 @@ class DedupStore:
 
     def get(self, event_key: str) -> Optional[DeduppedEvent]:
         return self._events.get(event_key)
+
+    def load(self, event: DeduppedEvent) -> None:
+        """Pre-warm the store with an existing event loaded from the database.
+        Used on startup so cross-source dedup survives pipeline restarts."""
+        self._events[event.event_key] = event
 
     def remove(self, event_key: str) -> None:
         self._events.pop(event_key, None)
