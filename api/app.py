@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routers import events, sources, stats
+from api.routers import events, sources, stats, activity, pipeline, recommender
 from core.db import Database
 from services.vault import Vault
 
@@ -30,12 +30,15 @@ app = FastAPI(title="External Data Manager API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # Vite dev server
+    allow_origins=["http://localhost:5173", "http://localhost:5174"],  # Vite dev servers (admin + recommender)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-app.include_router(events.router,  prefix="/api")
-app.include_router(sources.router, prefix="/api")
-app.include_router(stats.router,   prefix="/api")
+app.include_router(events.router,   prefix="/api")
+app.include_router(sources.router,  prefix="/api")
+app.include_router(stats.router,    prefix="/api")
+app.include_router(activity.router,  prefix="/api")
+app.include_router(pipeline.router,  prefix="/api")
+app.include_router(recommender.router, prefix="/api")

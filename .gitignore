@@ -28,8 +28,16 @@ config/secrets.json
 .DS_Store
 Thumbs.db
 
+# Node
+node_modules/
+
 # Logs
 *.log
 
 # Runtime state — regenerated on every run
 config/seen_ids.json
+config/raw_log.json
+config/event_log.json
+config/merge_log.json
+config/expiration_log.json
+config/pipeline_activity.json

@@ -26,21 +26,74 @@ function BarChart({ data, max }) {
   );
 }
 
-export default function Stats() {
-  const [stats, setStats] = useState(null);
-  const [loading, setLoading] = useState(true);
+function ActivityFeed({ records }) {
+  if (!records.length) return <p className="muted">No activity yet.</p>;
 
-  const load = () => {
-    setLoading(true);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      {records.map((r, i) => {
+        const isError = r.status === "error";
+        const utc  = r.ts.endsWith("Z") ? r.ts : r.ts + "Z";
+        const time = new Date(utc).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "medium" });
+        return (
+          <div
+            key={i}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              fontSize: "0.82rem",
+              padding: "7px 10px",
+              borderRadius: 6,
+              background: "var(--surface2)",
+              borderLeft: `3px solid ${isError ? "var(--red)" : r.new > 0 ? "var(--green)" : "var(--border)"}`,
+            }}
+          >
+            <span style={{ color: "var(--muted)", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>
+              {time}
+            </span>
+            <span className={`badge ${isError ? "badge-red" : "badge-blue"}`}>
+              {r.source_id}
+            </span>
+            {isError ? (
+              <span style={{ color: "var(--red)" }}>error — {r.error}</span>
+            ) : (
+              <span style={{ color: "var(--muted)" }}>
+                {r.fetched} fetched
+                {r.new > 0 && (
+                  <span style={{ color: "var(--green)", marginLeft: 6 }}>+{r.new} new</span>
+                )}
+                {r.skipped > 0 && (
+                  <span style={{ marginLeft: 6 }}>{r.skipped} skipped</span>
+                )}
+              </span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+export default function Stats() {
+  const [stats,    setStats]    = useState(null);
+  const [activity, setActivity] = useState([]);
+  const [loading,  setLoading]  = useState(true);
+
+  const loadAll = () => {
     fetch("/api/stats")
       .then((r) => r.json())
       .then(setStats)
       .finally(() => setLoading(false));
+    fetch("/api/activity")
+      .then((r) => r.json())
+      .then(setActivity)
+      .catch(() => {});
   };
 
   useEffect(() => {
-    load();
-    const id = setInterval(load, 10_000);
+    loadAll();
+    const id = setInterval(loadAll, 5_000);
     return () => clearInterval(id);
   }, []);
 
@@ -58,21 +111,15 @@ export default function Stats() {
     <div>
       <div className="page-header">
         <h1>Pipeline Dashboard</h1>
-        <p>Refreshes every 10 seconds.</p>
+        <p>Refreshes every 5 seconds.</p>
       </div>
 
       <div className="stat-grid">
-        <StatCard label="Trusted Events"   value={stats?.total_trusted}   />
-        <StatCard label="Dedupped Events"  value={stats?.total_dedupped}  />
-        <StatCard
-          label="Avg Trust Score"
-          value={stats?.avg_trust_score != null ? stats.avg_trust_score.toFixed(4) : "—"}
-          sub={`min ${stats?.min_trust_score ?? "—"} · max ${stats?.max_trust_score ?? "—"}`}
-        />
-        <StatCard label="Multi-source"     value={stats?.multi_source_count} sub="events seen from 2+ sources" />
+        <StatCard label="Trusted Events" value={stats?.total_trusted} />
+        <StatCard label="Multi-source"   value={stats?.multi_source_count} sub="events seen from 2+ sources" />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
         <div className="card">
           <h2 style={{ marginBottom: 16, fontSize: "1rem" }}>Events by Source</h2>
           {sources.length === 0
@@ -86,6 +133,16 @@ export default function Stats() {
             ? <p className="muted">No data yet.</p>
             : <BarChart data={topLoc.map(l => ({ label: l.city, count: l.count }))} max={maxLoc} />}
         </div>
+      </div>
+
+      <div className="card">
+        <h2 style={{ marginBottom: 16, fontSize: "1rem" }}>
+          Fetch Activity
+          <span style={{ marginLeft: 8, fontSize: "0.75rem", color: "var(--muted)", fontWeight: 400 }}>
+            last {activity.length} entries
+          </span>
+        </h2>
+        <ActivityFeed records={activity} />
       </div>
     </div>
   );

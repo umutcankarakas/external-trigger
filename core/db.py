@@ -46,6 +46,25 @@ CREATE TABLE IF NOT EXISTS dedupped_events (
 );
 """
 
+_CREATE_USER_PREFERENCES = """
+CREATE TABLE IF NOT EXISTS user_preferences (
+    user_id     TEXT        PRIMARY KEY,
+    city        TEXT,
+    categories  JSONB       DEFAULT '[]',
+    tags        JSONB       DEFAULT '[]',
+    created_at  TIMESTAMP   DEFAULT NOW(),
+    updated_at  TIMESTAMP   DEFAULT NOW()
+);
+"""
+
+_CREATE_EVENT_LLM_TAGS = """
+CREATE TABLE IF NOT EXISTS event_llm_tags (
+    event_key   TEXT        PRIMARY KEY,
+    tags        JSONB       DEFAULT '[]',
+    tagged_at   TIMESTAMP   DEFAULT NOW()
+);
+"""
+
 _CREATE_TRUSTED = """
 CREATE TABLE IF NOT EXISTS trusted_events (
     event_key           TEXT        PRIMARY KEY,
@@ -135,6 +154,8 @@ class Database:
         async with self._pool.acquire() as conn:
             await conn.execute(_CREATE_DEDUPPED)
             await conn.execute(_CREATE_TRUSTED)
+            await conn.execute(_CREATE_USER_PREFERENCES)
+            await conn.execute(_CREATE_EVENT_LLM_TAGS)
         logger.info("[DB] Connected and schema ready")
 
     async def disconnect(self) -> None:
@@ -195,6 +216,92 @@ class Database:
         async with self._pool.acquire() as conn:
             rows = await conn.fetch("SELECT * FROM trusted_events")
         return [_row_to_trusted(r) for r in rows]
+
+    async def count_trusted_events(self) -> int:
+        """Cheap row count — used by the tagging service to detect when the
+        initial fetch cycle has drained (count stops growing)."""
+        async with self._pool.acquire() as conn:
+            return await conn.fetchval("SELECT COUNT(*) FROM trusted_events")
+
+    # ------------------------------------------------------------------
+    # user_preferences
+    # ------------------------------------------------------------------
+
+    async def upsert_user_preferences(
+        self, user_id: str, city: str, categories: list, tags: list
+    ) -> None:
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO user_preferences (user_id, city, categories, tags, updated_at)
+                VALUES ($1, $2, $3, $4, NOW())
+                ON CONFLICT (user_id) DO UPDATE SET
+                    city = EXCLUDED.city,
+                    categories = EXCLUDED.categories,
+                    tags = EXCLUDED.tags,
+                    updated_at = NOW();
+                """,
+                user_id, city, json.dumps(categories), json.dumps(tags),
+            )
+
+    async def get_user_preferences(self, user_id: str) -> Optional[dict]:
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT * FROM user_preferences WHERE user_id = $1", user_id
+            )
+        if not row:
+            return None
+        return {
+            "user_id": row["user_id"],
+            "city": row["city"],
+            "categories": json.loads(row["categories"] or "[]"),
+            "tags": json.loads(row["tags"] or "[]"),
+            "created_at": row["created_at"].isoformat() + "Z" if row["created_at"] else None,
+            "updated_at": row["updated_at"].isoformat() + "Z" if row["updated_at"] else None,
+        }
+
+    # ------------------------------------------------------------------
+    # event_llm_tags  (controlled-vocabulary tags from the offline LLM pass)
+    # ------------------------------------------------------------------
+
+    async def upsert_event_tags(self, event_key: str, tags: list) -> None:
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO event_llm_tags (event_key, tags, tagged_at)
+                VALUES ($1, $2, NOW())
+                ON CONFLICT (event_key) DO UPDATE SET
+                    tags = EXCLUDED.tags,
+                    tagged_at = NOW();
+                """,
+                event_key, json.dumps(tags),
+            )
+
+    async def get_all_event_tags(self) -> dict:
+        """Return {event_key: [tags]} for every tagged event."""
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch("SELECT event_key, tags FROM event_llm_tags")
+        return {r["event_key"]: json.loads(r["tags"] or "[]") for r in rows}
+
+    async def get_untagged_trusted_events(self) -> List[TrustedEvent]:
+        """Trusted events that don't yet have an LLM-tag row — the tagging job's worklist."""
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT t.* FROM trusted_events t
+                LEFT JOIN event_llm_tags l ON t.event_key = l.event_key
+                WHERE l.event_key IS NULL
+                """
+            )
+        return [_row_to_trusted(r) for r in rows]
+
+    async def delete_event_tags(self, event_key: str) -> None:
+        """Drop an event's LLM-tag row. Called by the Expiration Service so a
+        removed event never leaves an orphaned row in event_llm_tags."""
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                "DELETE FROM event_llm_tags WHERE event_key = $1", event_key
+            )
 
 
 # ------------------------------------------------------------------

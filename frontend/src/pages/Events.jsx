@@ -1,27 +1,43 @@
 import { useEffect, useState, useCallback } from "react";
 
-function trustBadge(score) {
-  if (score >= 0.75) return <span className="badge badge-green">{score.toFixed(3)}</span>;
-  if (score >= 0.45) return <span className="badge badge-yellow">{score.toFixed(3)}</span>;
-  return <span className="badge badge-red">{score.toFixed(3)}</span>;
-}
-
 function fmtDate(iso) {
   if (!iso) return <span className="muted">—</span>;
-  const d = new Date(iso);
-  return d.toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" });
+  const utc = iso.endsWith("Z") ? iso : iso + "Z";
+  return new Date(utc).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" });
+}
+
+const COLUMNS = [
+  { key: "name",     label: "Name" },
+  { key: "date",     label: "Date" },
+  { key: "location", label: "Location" },
+  { key: "venue",    label: "Venue" },
+  { key: "tags",     label: "Tags",    sortable: false },
+  { key: "sources",  label: "Sources", sortable: false },
+];
+
+function sortEvents(events, key, dir) {
+  if (!key) return events;
+  return [...events].sort((a, b) => {
+    let va = a[key], vb = b[key];
+    if (key === "date") { va = va ? new Date(va) : 0; vb = vb ? new Date(vb) : 0; }
+    if (va == null) return 1;
+    if (vb == null) return -1;
+    if (va < vb) return dir === "asc" ? -1 : 1;
+    if (va > vb) return dir === "asc" ? 1 : -1;
+    return 0;
+  });
 }
 
 export default function Events() {
   const [events, setEvents]     = useState([]);
   const [loading, setLoading]   = useState(false);
   const [selected, setSelected] = useState(null);
+  const [sortKey, setSortKey]   = useState("date");
+  const [sortDir, setSortDir]   = useState("asc");
 
-  // filter state
   const [search,   setSearch]   = useState("");
   const [location, setLocation] = useState("");
   const [source,   setSource]   = useState("");
-  const [minTrust, setMinTrust] = useState("0");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo,   setDateTo]   = useState("");
 
@@ -31,7 +47,6 @@ export default function Events() {
     if (search)   params.set("search",    search);
     if (location) params.set("location",  location);
     if (source)   params.set("source",    source);
-    if (minTrust && minTrust !== "0") params.set("min_trust", minTrust);
     if (dateFrom) params.set("date_from", dateFrom);
     if (dateTo)   params.set("date_to",   dateTo);
 
@@ -39,9 +54,21 @@ export default function Events() {
       .then((r) => r.json())
       .then(setEvents)
       .finally(() => setLoading(false));
-  }, [search, location, source, minTrust, dateFrom, dateTo]);
+  }, [search, location, source, dateFrom, dateTo]);
 
   useEffect(() => { load(); }, [load]);
+
+  const handleSort = (col) => {
+    if (col.sortable === false) return;
+    if (sortKey === col.key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(col.key);
+      setSortDir("asc");
+    }
+  };
+
+  const sorted = sortEvents(events, sortKey, sortDir);
 
   return (
     <div>
@@ -71,13 +98,6 @@ export default function Events() {
           onChange={(e) => setSource(e.target.value)}
           style={{ minWidth: 130 }}
         />
-        <select value={minTrust} onChange={(e) => setMinTrust(e.target.value)}>
-          <option value="0">Min trust: any</option>
-          <option value="0.3">≥ 0.30</option>
-          <option value="0.5">≥ 0.50</option>
-          <option value="0.7">≥ 0.70</option>
-          <option value="0.9">≥ 0.90</option>
-        </select>
         <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} title="From date" />
         <input type="date" value={dateTo}   onChange={(e) => setDateTo(e.target.value)}   title="To date"   />
       </div>
@@ -88,25 +108,41 @@ export default function Events() {
         <table>
           <thead>
             <tr>
-              <th>Name</th>
-              <th>Date</th>
-              <th>Location</th>
-              <th>Venue</th>
-              <th>Trust</th>
-              <th>Sources</th>
+              {COLUMNS.map((col) => (
+                <th
+                  key={col.key}
+                  onClick={() => handleSort(col)}
+                  style={{
+                    cursor: col.sortable === false ? "default" : "pointer",
+                    userSelect: "none",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {col.label}
+                  {col.sortable !== false && sortKey === col.key && (
+                    <span style={{ marginLeft: 4, color: "var(--accent)" }}>
+                      {sortDir === "asc" ? "↑" : "↓"}
+                    </span>
+                  )}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
-            {events.length === 0 && !loading && (
-              <tr><td colSpan={6} style={{ textAlign: "center", padding: 32, color: "var(--muted)" }}>No events found.</td></tr>
+            {sorted.length === 0 && !loading && (
+              <tr>
+                <td colSpan={6} style={{ textAlign: "center", padding: 32, color: "var(--muted)" }}>
+                  No events found.
+                </td>
+              </tr>
             )}
-            {events.map((e) => (
+            {sorted.map((e) => (
               <tr key={e.event_key} style={{ cursor: "pointer" }} onClick={() => setSelected(e)}>
                 <td style={{ maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.name}</td>
                 <td style={{ whiteSpace: "nowrap" }}>{fmtDate(e.date)}</td>
                 <td>{e.location || <span className="muted">—</span>}</td>
                 <td>{e.venue   || <span className="muted">—</span>}</td>
-                <td>{trustBadge(e.trust_score)}</td>
+                <td><TagList tags={e.tags} /></td>
                 <td>
                   {(e.sources || []).map((s) => (
                     <span key={s} className="badge badge-blue" style={{ marginRight: 4 }}>{s}</span>
@@ -118,9 +154,18 @@ export default function Events() {
         </table>
       </div>
 
-      {selected && (
-        <EventModal event={selected} onClose={() => setSelected(null)} />
-      )}
+      {selected && <EventModal event={selected} onClose={() => setSelected(null)} />}
+    </div>
+  );
+}
+
+function TagList({ tags = [] }) {
+  if (!tags.length) return <span className="muted">—</span>;
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+      {tags.map((t) => (
+        <span key={t} className="badge badge-gray">{t}</span>
+      ))}
     </div>
   );
 }
@@ -145,20 +190,28 @@ function EventModal({ event: e, onClose }) {
           <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--muted)", fontSize: "1.2rem" }}>✕</button>
         </div>
 
-        <Row label="Key"         value={e.event_key} mono />
-        <Row label="Date"        value={e.date ? new Date(e.date).toLocaleString("en-GB", { dateStyle: "full", timeStyle: "short" }) : "—"} />
-        <Row label="Location"    value={e.location} />
-        <Row label="Venue"       value={e.venue} />
-        <Row label="URL"         value={e.url} link />
-        <Row label="Trust Score" value={e.trust_score?.toFixed(4)} />
+        <Row label="Key"          value={e.event_key} mono />
+        <Row label="Date"         value={e.date ? new Date(e.date.endsWith("Z") ? e.date : e.date + "Z").toLocaleString("en-GB", { dateStyle: "full", timeStyle: "short" }) : "—"} />
+        <Row label="Location"     value={e.location} />
+        <Row label="Venue"        value={e.venue} />
+        <Row label="URL"          value={e.url} link />
         <Row label="Source count" value={e.source_count} />
-        <Row label="Sources"     value={(e.sources || []).join(", ")} />
-        <Row label="Category"    value={(e.category || []).join(", ")} />
-        <Row label="Tags"        value={(e.tags || []).join(", ")} />
+        <Row label="Sources"      value={(e.sources || []).join(", ")} />
+        <Row label="Category"     value={(e.category || []).join(", ")} />
+        {(e.tags || []).length > 0 && (
+          <div style={{ display: "flex", gap: 12, marginBottom: 8, fontSize: "0.875rem" }}>
+            <span style={{ width: 110, flexShrink: 0, color: "var(--muted)" }}>Tags</span>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+              {(e.tags || []).map((t) => (
+                <span key={t} className="badge badge-gray">{t}</span>
+              ))}
+            </div>
+          </div>
+        )}
         {e.min_price != null && (
           <Row label="Price" value={`${e.min_price}${e.max_price && e.max_price !== e.min_price ? ` – ${e.max_price}` : ""} ${e.currency || ""}`.trim()} />
         )}
-        <Row label="Last updated" value={e.last_updated ? new Date(e.last_updated).toLocaleString("en-GB") : "—"} />
+        <Row label="Last updated" value={e.last_updated ? new Date(e.last_updated.endsWith("Z") ? e.last_updated : e.last_updated + "Z").toLocaleString("en-GB") : "—"} />
       </div>
     </div>
   );

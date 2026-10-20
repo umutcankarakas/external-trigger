@@ -1,0 +1,66 @@
+{
+  "_comment": "Controlled vocabulary for event tagging + recommendation. The LLM tagger maps every event to a subset of these slugs; the survey offers the same slugs so user preferences and event tags share one token space. 'slug' is the BM25 token (already normalized: lowercase, underscores). 'label' is for UI display only.",
+  "groups": [
+    {
+      "id": "music_genres",
+      "label": "Music genres",
+      "tags": [
+        { "slug": "pop", "label": "Pop" },
+        { "slug": "rock", "label": "Rock" },
+        { "slug": "jazz", "label": "Jazz" },
+        { "slug": "classical", "label": "Classical" },
+        { "slug": "electronic", "label": "Electronic" },
+        { "slug": "hip_hop", "label": "Hip-Hop / Rap" },
+        { "slug": "folk", "label": "Folk" },
+        { "slug": "metal", "label": "Metal" },
+        { "slug": "alternative", "label": "Alternative" },
+        { "slug": "world_music", "label": "World music" },
+        { "slug": "turkish_pop", "label": "Turkish pop" },
+        { "slug": "turkish_folk", "label": "Turkish folk" },
+        { "slug": "turkish_art_music", "label": "Turkish art music" },
+        { "slug": "arabesque", "label": "Arabesque" },
+        { "slug": "blues", "label": "Blues" },
+        { "slug": "indie", "label": "Indie" },
+        { "slug": "acoustic", "label": "Acoustic" }
+      ]
+    },
+    {
+      "id": "event_types",
+      "label": "Event types",
+      "tags": [
+        { "slug": "concert", "label": "Concert" },
+        { "slug": "festival", "label": "Festival" },
+        { "slug": "theatre", "label": "Theatre" },
+        { "slug": "musical", "label": "Musical" },
+        { "slug": "stand_up_comedy", "label": "Stand-up comedy" },
+        { "slug": "opera", "label": "Opera" },
+        { "slug": "ballet", "label": "Ballet" },
+        { "slug": "dance_show", "label": "Dance show" },
+        { "slug": "workshop", "label": "Workshop" },
+        { "slug": "exhibition", "label": "Exhibition" },
+        { "slug": "cinema", "label": "Cinema / Film" },
+        { "slug": "talk", "label": "Talk / Conference" }
+      ]
+    },
+    {
+      "id": "sports",
+      "label": "Sports",
+      "tags": [
+        { "slug": "football", "label": "Football" },
+        { "slug": "basketball", "label": "Basketball" },
+        { "slug": "sports", "label": "Other sports" }
+      ]
+    },
+    {
+      "id": "audience_vibe",
+      "label": "Audience & vibe",
+      "tags": [
+        { "slug": "family", "label": "Family" },
+        { "slug": "kids", "label": "Kids" },
+        { "slug": "nightlife", "label": "Nightlife / Party" },
+        { "slug": "open_air", "label": "Open-air" },
+        { "slug": "museum", "label": "Museum" }
+      ]
+    }
+  ]
+}

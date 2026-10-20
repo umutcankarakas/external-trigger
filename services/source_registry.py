@@ -13,7 +13,6 @@ class Source:
     is_active: bool
     auth_ref: Optional[str]
     category: List[str]
-    source_weight: float
     source_type: str
     auth_type: str = "query_param"  # "query_param" | "bearer"
 
@@ -30,6 +29,3 @@ class SourceRegistry:
     def get_source(self, source_id: str) -> Optional[Source]:
         return self._sources.get(source_id)
 
-    def get_weight(self, source_id: str) -> float:
-        src = self._sources.get(source_id)
-        return src.source_weight if src else 0.5

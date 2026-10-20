@@ -21,7 +21,6 @@ def _write_sources(data):
 
 class SourceUpdate(BaseModel):
     is_active: Optional[bool] = None
-    source_weight: Optional[float] = Field(None, ge=0.0, le=1.0)
     fetch_frequency: Optional[int] = Field(None, ge=10, description="Seconds between fetches")
 
 
@@ -39,8 +38,6 @@ async def update_source(source_id: str, body: SourceUpdate):
 
     if body.is_active is not None:
         source["is_active"] = body.is_active
-    if body.source_weight is not None:
-        source["source_weight"] = body.source_weight
     if body.fetch_frequency is not None:
         source["fetch_frequency"] = body.fetch_frequency
 

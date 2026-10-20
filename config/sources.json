@@ -2,14 +2,17 @@
   {
     "source_id": "ticketmaster",
     "endpoint": "https://app.ticketmaster.com/discovery/v2/events.json",
-    "search_query": {"classificationName": "music", "size": 20, "countryCode": "TR"},
-    "fetch_frequency": 60,
+    "search_query": {
+      "countryCode": "TR",
+      "startDateTime": "$todayT",
+      "endDateTime": "$today+30dT"
+    },
+    "fetch_frequency": 3600,
     "last_fetched_at": null,
     "is_active": true,
     "auth_ref": "ticketmaster_api_key",
     "auth_type": "query_param",
-    "category": ["event", "concert", "music"],
-    "source_weight": 0.90,
+    "category": ["event"],
     "source_type": "ticketmaster"
   },
   {
@@ -18,11 +21,98 @@
     "search_query": {},
     "fetch_frequency": 60,
     "last_fetched_at": null,
+    "is_active": false,
+    "auth_ref": null,
+    "auth_type": "query_param",
+    "category": ["event"],
+    "source_type": "mock"
+  },
+  {
+    "source_id": "predicthq",
+    "endpoint": "https://api.predicthq.com/v1/events/",
+    "search_query": {
+      "country": "TR",
+      "category": "concerts,community,festivals,performing-arts,sports,expos,academic,school-holidays,public-holidays,daylight-savings,politics",
+      "start.gte": "$today",
+      "start.lte": "$today+30d",
+      "sort": "start"
+    },
+    "fetch_frequency": 1800,
+    "last_fetched_at": null,
+    "is_active": true,
+    "auth_ref": "predicthq_api_key",
+    "auth_type": "bearer",
+    "category": ["event"],
+    "source_type": "predicthq"
+  },
+  {
+    "source_id": "apisports",
+    "endpoint": "https://v3.football.api-sports.io/fixtures",
+    "search_query": {
+      "league": "203",
+      "season": "$season",
+      "from": "$today",
+      "to": "$today+30d",
+      "timezone": "Europe/Istanbul"
+    },
+    "fetch_frequency": 21600,
+    "last_fetched_at": null,
+    "is_active": false,
+    "auth_ref": "apisports_api_key",
+    "auth_type": "header:x-apisports-key",
+    "category": ["event"],
+    "source_type": "apisports"
+  },
+  {
+    "source_id": "espn",
+    "endpoint": "https://site.api.espn.com/apis/site/v2/sports/soccer/tur.1/scoreboard",
+    "search_query": {
+      "dates": "$today_compact-$today+30d_compact"
+    },
+    "fetch_frequency": 21600,
+    "last_fetched_at": null,
     "is_active": true,
     "auth_ref": null,
     "auth_type": "query_param",
-    "category": ["event", "concert", "music"],
-    "source_weight": 0.60,
-    "source_type": "mock"
+    "category": ["event"],
+    "source_type": "espn"
+  },
+  {
+    "source_id": "thesportsdb_basketball",
+    "endpoint": "https://www.thesportsdb.com/api/v1/json/3/eventsnextleague.php",
+    "search_query": {
+      "id": "4475"
+    },
+    "fetch_frequency": 21600,
+    "last_fetched_at": null,
+    "is_active": true,
+    "auth_ref": null,
+    "auth_type": "query_param",
+    "category": ["event"],
+    "source_type": "thesportsdb"
+  },
+  {
+    "source_id": "biletix",
+    "endpoint": "https://www.biletix.com/solr/tr/select",
+    "search_query": {},
+    "fetch_frequency": 3600,
+    "last_fetched_at": null,
+    "is_active": true,
+    "auth_ref": null,
+    "auth_type": "none",
+    "category": ["event"],
+    "source_type": "biletix"
+  },
+  {
+    "source_id": "passo",
+    "endpoint": "https://ticketingweb.passo.com.tr/api/passoweb/allevents",
+    "search_query": {},
+    "fetch_frequency": 3600,
+    "last_fetched_at": null,
+    "is_active": true,
+    "auth_ref": null,
+    "auth_type": "none",
+    "category": ["event"],
+    "source_type": "passo"
   }
 ]

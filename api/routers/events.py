@@ -8,11 +8,14 @@ router = APIRouter()
 
 
 def _serialize(obj) -> dict:
-    """Convert a dataclass to a JSON-safe dict."""
+    """Convert a dataclass to a JSON-safe dict.
+    Datetime fields are serialised with a 'Z' suffix so browsers parse them
+    as UTC and display them in the user's local timezone correctly.
+    """
     d = dataclasses.asdict(obj)
     for k, v in d.items():
         if isinstance(v, datetime):
-            d[k] = v.isoformat() if v else None
+            d[k] = (v.isoformat() + "Z") if v else None
     return d
 
 

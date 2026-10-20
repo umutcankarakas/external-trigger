@@ -37,14 +37,12 @@ export default function Sources() {
 
 function SourceCard({ source, onSave }) {
   const [isActive,       setIsActive]       = useState(source.is_active);
-  const [sourceWeight,   setSourceWeight]   = useState(source.source_weight);
   const [fetchFrequency, setFetchFrequency] = useState(source.fetch_frequency);
   const [saving,         setSaving]         = useState(false);
   const [saved,          setSaved]          = useState(false);
 
   const dirty =
     isActive !== source.is_active ||
-    Number(sourceWeight)   !== source.source_weight ||
     Number(fetchFrequency) !== source.fetch_frequency;
 
   const save = async () => {
@@ -55,7 +53,6 @@ function SourceCard({ source, onSave }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           is_active:       isActive,
-          source_weight:   Number(sourceWeight),
           fetch_frequency: Number(fetchFrequency),
         }),
       });
@@ -70,11 +67,6 @@ function SourceCard({ source, onSave }) {
       setSaving(false);
     }
   };
-
-  const weightColor =
-    sourceWeight >= 0.85 ? "var(--green)"
-    : sourceWeight >= 0.5 ? "var(--yellow)"
-    : "var(--red)";
 
   return (
     <div className="source-card">
@@ -94,19 +86,6 @@ function SourceCard({ source, onSave }) {
       </div>
 
       <div className="source-fields">
-        <div className="source-field">
-          <label>Trust weight</label>
-          <input
-            type="number"
-            min={0}
-            max={1}
-            step={0.05}
-            value={sourceWeight}
-            onChange={(e) => setSourceWeight(e.target.value)}
-            style={{ borderColor: weightColor }}
-          />
-        </div>
-
         <div className="source-field">
           <label>Frequency (s)</label>
           <input
